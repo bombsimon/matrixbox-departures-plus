@@ -1,25 +1,19 @@
-# 0.9.0 - Colors, icons, status row your way, station row
+# 0.9.1 - A reliable first round, a smarter fallback, seconds
+
+**Fixed**
+
+* When the display comes on after a night off, the first round through the stations showed no departures. Now every station is asked right away, and a station that is still loading keeps its turn for up to 20 seconds until its departures are in.
+* A single failed request no longer shows "No data" at once: the station is asked again twice within a few seconds, and after that every 20 seconds instead of every minute.
+* The fallback steps in when the main source has fewer than two departures to show, not only when it has none. Departures you cannot reach count as missing while they are hidden. The main source is asked first again with every update, so the display goes back to it as soon as it delivers.
+* A request to the data server waits 5 seconds instead of 4.
 
 **New**
 
-* The status row can sit at the top or the bottom. The clock goes left, center or right.
-* Three icon places in the status row show one of 25 symbols (WC, door, window, light, power, washer, dishwasher, battery, water, weather symbols and more) or two letters, in the LED tone or any color. Home Assistant sets them, for example a red WC while the bathroom is taken.
-* A station row shows the station's name above or below the departures, left, centered or right, with its lines and the time if you like. In the mixed list it shows a text of your own. It works together with the status row.
-* When the display comes on, nothing old is shown: the station title waits with a loading mark until fresh departures are in. This can be switched off.
-* Picking a fallback is easier: the search row is marked, the country is set and another operator is preselected.
-* A new Colors section gives destinations, times, line names, the station title, the station row, clock, date, ticker and page indicator a color of their own.
-* The clock symbol and the date can be as bright as the clock.
-* The settings page shows all icons under the i next to Icons. A leading / shows letters that are also an icon name, e.g. /wc.
-* While the pages of a station turn, the station row stays where it is.
-* Optionally, a small dot in the corner shows that a station's departures come from its fallback source.
-* `tools/simulate.py` starts the app with made-up departures in the simulator, in every board size.
+* The clock can show seconds.
 
 **Changed**
 
-* Nothing is fetched while the display is off, and a station's departures are fetched just before its turn instead of all the time. The ticker stops less often.
-* A request to the data server gives up after 4 seconds instead of 6.
-* A station whose first answer is empty is asked again after 4 seconds, twice, before "No departures" shows.
-* Up to five pages per station instead of three. A page of departures can stay for as little as 1 second.
+* The version is easy to check: it stands on the loading screen while the board starts and as a badge at the top of the settings page.
 
 **Update**
 

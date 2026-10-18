@@ -15,7 +15,7 @@ This is a community project and not affiliated with T-Skylt Sweden AB. It gets i
 * **Status row.** Clock, date and a ticker for your own text, messages from Home Assistant and the operator's service notices. The ticker runs as an endless belt or one round at a time, with a divider of your choice. The row sits at the top or the bottom, the clock left, centered or right, and three icon places show symbols or letters that Home Assistant sets, such as a red WC while the bathroom is taken.
 * **Real-time mark.** Tells live departures from timetable ones, where the operator's data says so.
 * **Station row:** the station's name above or below the departures, with its lines and the time if you like. It stays still while a station's pages turn.
-* **Per station:** walking time, lines to show or to hide (also per direction), a filter by direction and vehicle type, and a fallback data source that steps in when the main one has no departures.
+* **Per station:** walking time, lines to show or to hide (also per direction), a filter by direction and vehicle type, and a fallback data source that steps in when the main one has fewer than two departures to show.
 * **Colors:** destinations, times, line names, station title, station row, clock, date, ticker and page indicator can each have their own color.
 * **Display:** three text sizes, ten LED tones or your own, brightness, margins, 180° rotation, an inverted look, a schedule per weekday, sleep while nothing departs.
 * **Movement:** stations and pages can slide in from any side, dissolve in small tiles, open like blinds or wipe in. Departures that move up can roll into place.
