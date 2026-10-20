@@ -42,6 +42,7 @@ class App:
         self.t_spin = 0
         self.spin = 0
         self.t_pre = 0
+        self.logo_end = 0; self.logo_req = False; self.logo_next = False; self.t_logo = mono_ms(); self.t_wake = mono_ms()
         try: self.hw0 = (display.rotation, wifi.radio.tx_power)
         except Exception: self.hw0 = None
         try: self.restart()
@@ -114,7 +115,7 @@ class App:
         # The fallback steps in when the main source has nothing coming up: an error,
         # a station that never finishes loading, or a list that has gone stale.
         n = self._upcoming(deps, st)
-        if st.get("fb_id") and n < 2 and (msg != "loading" or e["loads"] >= 3):
+        if st.get("fb_id") and n < (1 if self.cfg["calm"] else 2) and (msg != "loading" or e["loads"] >= 3):
             gc.collect()
             d2, m2 = self._get(st, st.get("fb_operator") or st["operator"], st["fb_id"])
             if self._upcoming(d2, st) > n:      # the fallback has more to show; the main source is asked first again next time
@@ -140,7 +141,7 @@ class App:
         if e is None: return True
         now = mono_ms()
         if e["retry"]: return now >= e["retry"]
-        return now - e["t"] >= self.cfg["poll"] * 1000
+        return now - e["t"] >= (max(120, self.cfg["poll"]) if self.cfg["calm"] else self.cfg["poll"]) * 1000
 
     def ensure(self, st):
         if self.stale(st): self.fetch(st)
@@ -216,7 +217,7 @@ class App:
                          "dly": ("+" + str(d[4])) if (c["delay"] == "plus" and d[4] > 0 and not d[5]) else "",
                          "canc": d[5], "dim": bool(d[5]) or (late and c["walk"] == "dim"),
                          "blink": c["blink"] != "off" and mins == 0 and not d[5],
-                         "rgb": rgb, "pill": pill, "live": d[8], "tag": self.tag(st) if (merged and c["tag"]) else ""})
+                         "rgb": rgb, "pill": pill, "live": d[8], "ink": self.ink_for(d[1], d[2]), "tag": self.tag(st) if (merged and c["tag"]) else ""})
         return rows, None
 
     def _sig(self, rows, msg):
@@ -324,6 +325,14 @@ class App:
         self.scr.draw_intro(bmp, st["name"], lines[:8],        # the name exactly as it stands in the settings
                             self.S("walk").replace("%", str(w)) if w else "", (str(w) + " " + self.S("min").upper()) if w else "", self.cfg)
 
+    def ink_for(self, line, mode):
+        """Black or white signet text for this line by the two exception lists, else None (the general setting)."""
+        k = str(line).upper().replace(" ", "")
+        for key, ink in (("ink_black", "black"), ("ink_white", "white")):
+            for e in self.cfg[key].upper().replace(",", " ").split():
+                if e == k or e == "@" + str(mode): return ink
+        return None
+
     def title_lines(self, st):
         seen = []
         e = self.cache.get(self.key(st))
@@ -334,11 +343,12 @@ class App:
                     seen.append(d[1])
                     rgb, pill = dp_cfg.line_color(st["country"], e["op"], d[1], d[2], d[6])
                     if self.cfg["badge"] == "mono" or (d[2] in ("BUS", "TRAM") and not self.cfg["bus_color"]): rgb = None
-                    lines.append((d[1], rgb, pill))
+                    lines.append((d[1], rgb, pill, self.ink_for(d[1], d[2])))
         return lines
 
     # ---- flow ----------------------------------------------------------
     def restart(self):
+        self.logo_end = 0
         self.hw()
         self.scr.build(self.cfg)
         gc.collect()
@@ -442,7 +452,7 @@ class App:
         left = cs + "|" + date + "|" + str(ic)
         if left != self.clock_s or force:
             self.clock_s = left
-            self.scr.set_left(cs, date, c["st_icon"] and c["st_clock"], ic, c["st_icons"], c["clock_pos"])
+            self.scr.set_left(cs, date, c["st_icon"] and c["st_clock"], ic, c["st_icons"], c["clock_pos"], c["st_icon_text"])
             changed = True
         self.prune()
         parts = []
@@ -500,12 +510,22 @@ class App:
         if want == self.vis: return
         self.vis = want
         self.shown = want == 1
+        if want == 1 and self.cfg["logo_wake"] and self.active() and not self.logo_end:
+            d = self.scr.logo_load()        # the logo goes up before the display comes on, the first station waits under it
+            if d:
+                try:
+                    self.scr.logo_show(d, self.cfg, None, True)
+                    self.logo_end = mono_ms() + self.cfg["logo_secs"] * 1000
+                except Exception as e:
+                    self.note("logo: " + str(e))
+                    self.scr.logo_hide(False)
         self.scr.power(want)
         self.tick_reset = True   # ticker-only shows just the waking messages
         if want == 1:
             self.sig = None
             self.t_sec = 0
             self.t0 = mono_ms()
+            self.t_logo = self.t_wake = mono_ms()
             if self.cfg["power_wait"]: self.cache = {}     # nothing was fetched while dark: wait for fresh data
             if self.cfg["mode"] == "rotate" and self.active():
                 self.phase = "none"              # back on: start over with the first station and its title
@@ -525,6 +545,43 @@ class App:
                 break
         if new: self.msgs.append(new)
         self.msgs = [m for m in self.msgs if m[1]][-10:]
+
+    def logo_start(self):
+        self.t_logo = mono_ms()
+        d = self.scr.logo_load()
+        if d is None: return
+        gc.collect()
+        try: self.scr.logo_show(d, self.cfg, self.on_frame)
+        except Exception as e:
+            self.note("logo: " + str(e))
+            self.scr.logo_hide(False)
+            return
+        self.logo_end = mono_ms() + self.cfg["logo_secs"] * 1000
+
+    def logo_tick(self, now):
+        """True while the logo is on screen: everything else waits until it has gone."""
+        if not self.logo_end: return False
+        if self.shown and now < self.logo_end:
+            if self.scr.logo_pulse(now): display.refresh()
+            return True
+        if self.logo_next and self.shown:
+            self.logo_next = False
+            self.logo_end = 0
+            self.next_station()            # the first station comes in under the logo, the logo then makes way for it
+        self.scr.logo_hide(self.shown, self.on_frame)
+        self.logo_end = 0; self.logo_next = False
+        self.t_logo = self.t0 = mono_ms()       # the page under it gets its full time again
+        return False
+
+    def logo_due(self, now):
+        return self.cfg["logo_auto"] and now - self.t_logo >= self.cfg["logo_every"] * 60000
+
+    def warm_one(self, act):
+        for st in act:
+            if (self.cache.get(self.key(st)) or {}).get("deps") is None and self.stale(st):
+                self.fetch(st)
+                return True
+        return False
 
     def poll_one(self, act):
         for st in act:
@@ -548,6 +605,12 @@ class App:
                 self.asleep = False
             self.prune()
             self.apply_shown()
+        if self.logo_tick(now): return
+        if self.shown and act and (self.logo_req or ((self.cfg["mode"] == "merged" or self.phase == "deps") and self.sig != "loading" and
+                                                    self.logo_due(now) and (self.cfg["mode"] == "merged" or len(act) < 2 or self.pin >= 0 or not self.cfg["logo_round"]))):
+            self.logo_req = False
+            self.logo_start()
+            return
         dirty = False
         sp = self.cfg["ticker_speed"]
         if self.vis and now - self.t_tick >= (60 if sp == "slow" else 18 if sp == "fast" else 35):
@@ -600,6 +663,11 @@ class App:
                     self.turn(self.pg + 1)
                     dirty = True
                 elif due and len(act) > 1 and self.pin < 0:
+                    if self.cfg["logo_round"] and (self.i + 1) % len(act) == 0 and self.logo_due(now):
+                        self.logo_next = True          # the logo between the last station and the first: a new round starts
+                        self.logo_start()
+                        if self.logo_end: return
+                        self.logo_next = False
                     self.next_station()
                     dirty = True
                 elif due and self.cfg["intro_single"] and self.cfg["intro"] > 0 and (len(act) == 1 or self.pin >= 0):
@@ -612,8 +680,8 @@ class App:
                 elif self.stale(act[self.i]):
                     self.fetch(act[self.i])
                     self.t_sec = 0
-                elif second and len(act) > 1 and [1 for s in act if (self.cache.get(self.key(s)) or {}).get("deps") is None]:
-                    self.poll_one(act)         # warming up: the data server loads a cold station only once it is asked
+                elif second and len(act) > 1 and now - self.t_wake < 60000 and self.warm_one(act):
+                    self.t_sec = 0             # warming up: the data server loads a cold station only once it is asked
                 elif len(act) > 1 and self.pin < 0 and self.cfg["dwell"] * 1000 - (now - self.t0) < 2500 and now - self.t_pre >= 3000:
                     # Load the next station just before its turn, so the ticker is held up only then.
                     self.t_pre = now
@@ -635,6 +703,14 @@ class App:
             self.fetch_dev()
         if dirty: display.refresh()
 
+    def _has_logo(self):
+        try:
+            import os
+            os.stat(dp_cfg.LOGO_FILE)
+            return 1
+        except OSError:
+            return 0
+
     def state(self):
         act = self.active()
         now = self.net.now()
@@ -642,7 +718,7 @@ class App:
                "asleep": 1 if self.asleep else 0, "brightness": self.cfg["brightness"], "mode": self.cfg["mode"], "phase": self.phase,
                "index": self.i, "page": self.pg, "pinned": self.pin, "station": act[self.i]["name"] if act and self.i < len(act) else "",
                "time": (self.clock_s or "").split("|")[0], "ticker_text": self.cfg["ticker_text"], "messages": [m[1] for m in self.msgs], "width": self.scr.W, "height": self.scr.H, "stations": [],
-               "woken": 1 if self.vis == 2 else 0,
+               "woken": 1 if self.vis == 2 else 0, "logo": self._has_logo(), "logo_shown": 1 if self.logo_end else 0,
                "uptime": int(time.monotonic() // 60)}
         try:
             out["temperature"] = round(microcontroller.cpu.temperature)

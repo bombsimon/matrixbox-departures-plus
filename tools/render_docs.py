@@ -114,6 +114,9 @@ def displays(app, tmp):
                                             icon3="sun", icon3_c="yellow", stations=[H, Z, A])),
         ("A color per element", shot(app, tmp, "colors", c_time="#00ff66", c_dest="white", c_clock="#33aaff", c_date="#33aaff", st_bright=1,
                                     c_ticker="#ff66cc", stations=[A, H, Z])),
+        ("Bold text", shot(app, tmp, "bold", font_bold=1, stations=[Z, A, H])),
+        ("Letters as icons, cut out of a box", shot(app, tmp, "box", st_ticker=0, st_icon_text="box", icon1="/WC", icon1_c="red",
+                                                   icon2="/OK", icon2_c="green", icon3="battery", icon3_c="green", ink_black="@BUS", stations=[H, Z, A])),
     ]).save(os.path.join(DOCS, "features.png"))
 
 

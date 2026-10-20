@@ -45,10 +45,10 @@ def main():
     try: post(ip, "mkdir", "/departuresplus")
     except Exception: pass
     # Remove the previous version first: the board has little room, and overwriting a file
-    # needs space for both copies. Stations and settings (departuresplus.json) stay.
+    # needs space for both copies. Stations and settings (departuresplus.json) and the logo stay.
     try:
         for item in post(ip, "ls", "/departuresplus").get("items", []):
-            if item.get("n") != "departuresplus.json": post(ip, "del", "/departuresplus/" + item["n"])
+            if item.get("n") not in ("departuresplus.json", "logo.bin"): post(ip, "del", "/departuresplus/" + item["n"])
     except Exception:
         pass
     bad = 0

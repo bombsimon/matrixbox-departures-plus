@@ -78,10 +78,10 @@ if (-not $prefix) {
 }
 try { $null = Send-Board 'mkdir' $dir $none } catch { }
 # Remove the previous version first. The board has little room, and overwriting a file
-# needs space for both copies. Your stations and settings (departuresplus.json) stay.
+# needs space for both copies. Your stations and settings (departuresplus.json) and the logo stay.
 $removed = 0
 try {
-  (Send-Board 'ls' $dir $none).items | Where-Object { $_.n -ne 'departuresplus.json' } | ForEach-Object {
+  (Send-Board 'ls' $dir $none).items | Where-Object { $_.n -ne 'departuresplus.json' -and $_.n -ne 'logo.bin' } | ForEach-Object {
     try { $null = Send-Board 'del' "$dir/$($_.n)" $none; $removed++ } catch { }
   }
 } catch { }

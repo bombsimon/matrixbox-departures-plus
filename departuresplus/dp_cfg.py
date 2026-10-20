@@ -2,9 +2,10 @@
 # Pure data and helpers, no hardware access.
 import json
 
-VERSION = "0.9.1"
+VERSION = "0.10.0"
 APP = "departuresplus"
 CFG_FILE = "departuresplus.json"
+LOGO_FILE = "logo.bin"   # 'L', width, height (2 bytes each), colours, palette, 4-bit pixels
 
 DEFAULTS = {
     "stations": [],          # [{name, country, operator, id, walk, on, lines, dir, modes, fb_operator, fb_id}]
@@ -21,8 +22,11 @@ DEFAULTS = {
     "pager": "dots",         # dots | bar | off
     "font": "normal",        # compact | normal | large
     "max_rows": 0,           # 0 = as many as fit
+    "font_bold": 0,          # thicker letters in the departure rows (normal and large text)
     "badge": "fill",         # fill | invert (white box, coloured name) | text | mono
     "badge_ink": "auto",     # auto | black | white: the text inside a signet
+    "ink_black": "",         # lines or @BUS, @TRAM, @METRO, @TRAIN, @SHIP whose signets get black text
+    "ink_white": "",         # the same for white text
     "bus_color": 1,
     "time_fmt": "min",       # min | tick | plain | clock
     "now_text": "",          # empty = "now"
@@ -47,6 +51,7 @@ DEFAULTS = {
     "st_pos": "bottom",      # bottom | top
     "clock_pos": "left",     # left | center | right: clock and date
     "st_icons": "right",     # off | left | right
+    "st_icon_text": "normal",  # normal | small | box: how two letters look in an icon place
     "icon1": "", "icon1_c": "", "icon2": "", "icon2_c": "", "icon3": "", "icon3_c": "",   # icon name or up to 2 characters, colour
     "srow": "off",           # off | top | bottom: a row with the station's name
     "srow_align": "left",    # left | center | right
@@ -67,6 +72,7 @@ DEFAULTS = {
     "ticker_sep": "+++",     # stands between two texts
     "ticker_dev": 1,         # show the operator's service messages in the ticker
     "ticker_speed": "normal",  # fast | normal | slow
+    "ticker_italic": 0,
     "tone": "amber",         # see dp_draw.TONES, or "custom" with tone_hex
     "tone_hex": "#ff9900",
     # Own colours per element, empty = the default. A name (red, green, blue, yellow, orange, white) or #RRGGBB.
@@ -83,8 +89,16 @@ DEFAULTS = {
     "sched_off": "23:00",
     "sched_days": "",        # Mon..Sun separated by ";": "" = the times above, "off", or "06:30-22:00"
     "flip": 0,               # turn the picture by 180 degrees
+    "logo_auto": 0,          # show the uploaded logo now and then
+    "logo_every": 15,        # minutes
+    "logo_secs": 5,
+    "logo_anim": "fade",     # fade | zoom | up | down | left | right | dissolve | blinds | wipe | random | cut
+    "logo_pulse": "off",     # off | glow (darker and brighter) | grow (smaller and back) | both
+    "logo_wake": 0,          # show the logo first when the display comes on
+    "logo_round": 1,         # with several stations: wait until the rotation starts over
     "tx_power": 0,           # Wi-Fi transmit power in dBm, 0 = leave the board's own setting
     "poll": 30,              # seconds between requests per station
+    "calm": 0,               # fewer requests for a smoother ticker: every 2 minutes per station at most
     "host": "data.t-skylt.se",
     "port": 90,
 }
@@ -96,14 +110,16 @@ CHOICES = {
     "font": ("compact", "normal", "large"), "badge": ("fill", "invert", "text", "mono"),
     "time_fmt": ("min", "tick", "plain", "clock"), "delay": ("incl", "plus"), "walk": ("show", "dim", "hide"),
     "status": ("on", "off"), "st_pos": ("bottom", "top"), "clock_pos": ("left", "center", "right"),
-    "st_icons": ("off", "left", "right"), "srow": ("off", "top", "bottom"), "srow_align": ("left", "center", "right"), "st_date": ("off", "date", "wday"), "ticker_color": ("white", "tone"),
+    "st_icons": ("off", "left", "right"), "st_icon_text": ("normal", "small", "box"),
+    "logo_anim": ("fade", "zoom", "up", "down", "left", "right", "dissolve", "blinds", "wipe", "random", "cut"),
+    "logo_pulse": ("off", "glow", "grow", "both"), "srow": ("off", "top", "bottom"), "srow_align": ("left", "center", "right"), "st_date": ("off", "date", "wday"), "ticker_color": ("white", "tone"),
     "tone": ("amber", "orange", "yellow", "white", "warm", "red", "green", "blue", "cyan", "pink", "custom"),
     "button": ("next", "power"), "ticker_speed": ("fast", "normal", "slow"),
     "blink": ("off", "time", "dest", "line", "row"), "live": ("off", "wave", "dot", "bar", "tick", "approx"), "delay_color": ("red", "tone"), "badge_ink": ("auto", "black", "white"),
 }
-LIMITS = {"intro": (0, 10), "dwell": (1, 60), "pages": (1, 5), "skip": (0, 60), "brightness": (1, 3), "poll": (20, 600),
+LIMITS = {"intro": (0, 10), "dwell": (1, 60), "logo_every": (1, 240), "logo_secs": (1, 60), "pages": (1, 5), "skip": (0, 60), "brightness": (1, 3), "poll": (20, 600),
           "port": (1, 65535), "max_rows": (0, 16), "line_len": (0, 6), "line_col": (0, 6), "gap": (0, 12), "tx_power": (0, 20), "margin_l": (0, 12), "margin_r": (0, 12)}
-STRLEN = {"ticker_text": 160, "abbr": 240, "strip": 120, "sched_days": 100, "tone_hex": 7, "walk_text": 24, "days_text": 70, "ticker_sep": 12, "nodeps_text": 60, "srow_text": 24,
+STRLEN = {"ticker_text": 160, "ink_black": 120, "ink_white": 120, "abbr": 240, "strip": 120, "sched_days": 100, "tone_hex": 7, "walk_text": 24, "days_text": 70, "ticker_sep": 12, "nodeps_text": 60, "srow_text": 24,
           "icon1": 12, "icon2": 12, "icon3": 12, "icon1_c": 9, "icon2_c": 9, "icon3_c": 9,
           "c_time": 9, "c_dest": 9, "c_line": 9, "c_tag": 9, "c_clock": 9, "c_date": 9, "c_ticker": 9, "c_srow": 9, "c_srow_t": 9, "c_title": 9, "c_walk": 9, "c_pager": 9}
 

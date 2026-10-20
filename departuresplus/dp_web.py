@@ -41,7 +41,7 @@ def _apply(changes, persist):
             _app.scr.set_palette(_app.cfg)
             _app.clock_s = None
             _app.t_sec = 0
-        elif all(k[:4] == "icon" for k in changed):     # icons only: redraw the status row, keep everything else running
+        elif all(k[:4] in ("icon", "logo") or k == "st_icon_text" for k in changed):     # icons and logo: redraw the status row, keep everything else running
             _app.clock_s = None
             _app.t_sec = 0
         else:
@@ -117,6 +117,9 @@ def init(app):
             if _app.pin >= len(_app.active()): _app.pin = -1
             if _app.pin >= 0 and _app.shown and _app.cfg["mode"] == "rotate": _app.show(_app.pin)
         if "next" in p and _app.shown: _app.next_station()
+        if p.get("logo") in ("1", "on", "true"):
+            _app.logo_req = True
+            out["logo"] = "shown" if _app._has_logo() else "none"
         changes = {}
         for k in p:
             if k in dp_cfg.DEFAULTS and k != "stations": changes[k] = p[k]
@@ -126,6 +129,38 @@ def init(app):
             out["saved"] = saved
         out["state"] = _app.state()
         return _json(out)
+
+    @ampule.route("/api/logo", method="GET")
+    def _logo_get(request):
+        try:
+            import binascii
+            with open(dp_cfg.LOGO_FILE, "rb") as f: d = f.read()
+            return _json({"ok": True, "hex": binascii.hexlify(d).decode()})
+        except Exception:
+            return _json({"ok": True, "hex": ""})
+
+    @ampule.route("/api/logo", method="POST")
+    def _logo_post(request):
+        # The settings page sends the logo as hex text, or "clear" to remove it.
+        b = (request.body or "").strip()
+        try:
+            if b == "clear":
+                import os
+                try: os.remove(dp_cfg.LOGO_FILE)
+                except OSError as e:
+                    if getattr(e, "errno", 0) == 30: raise
+                return _json({"ok": True})
+            import binascii, gc
+            d = binascii.unhexlify(b)
+            b = None
+            gc.collect()
+            if len(d) < 7 or d[0] != 76 or d[5] > 14: return _json({"ok": False, "error": "not a logo"})
+            with open(dp_cfg.LOGO_FILE, "wb") as f: f.write(d)
+            return _json({"ok": True, "bytes": len(d)})
+        except OSError as e:
+            return _json({"ok": False, "error": "the board's storage is read-only (USB connected?)" if getattr(e, "errno", 0) == 30 else str(e)})
+        except Exception as e:
+            return _json({"ok": False, "error": str(e)})
 
     @ampule.route("/api/message", method="GET")
     def _message(request):

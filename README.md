@@ -17,13 +17,14 @@ This is a community project and not affiliated with T-Skylt Sweden AB. It gets i
 * **Station row:** the station's name above or below the departures, with its lines and the time if you like. It stays still while a station's pages turn.
 * **Per station:** walking time, lines to show or to hide (also per direction), a filter by direction and vehicle type, and a fallback data source that steps in when the main one has fewer than two departures to show.
 * **Colors:** destinations, times, line names, station title, station row, clock, date, ticker and page indicator can each have their own color.
-* **Display:** three text sizes, ten LED tones or your own, brightness, margins, 180° rotation, an inverted look, a schedule per weekday, sleep while nothing departs.
+* **Logo:** upload a picture on the settings page and it takes over the display every few minutes, fading, zooming, sliding, wiping or dissolving in, glowing or growing and shrinking if you like, and first thing when the display comes on. Home Assistant can show it at the press of a button.
+* **Display:** three text sizes, bold text, ten LED tones or your own, brightness, margins, 180° rotation, an inverted look, a schedule per weekday, sleep while nothing departs.
 * **Movement:** stations and pages can slide in from any side, dissolve in small tiles, open like blinds or wipe in. Departures that move up can roll into place.
 * **Home Assistant:** power, brightness, shown station, next departures and ticker messages through the [T-Skylt integration](https://github.com/jnbp/t-skylt). A ticker message can light up just the ticker while the display is off.
 
 ![The display in eight settings](docs/display.png)
 
-![Station row, icons and colors](docs/features.png)
+![Station row, icons, colors and bold text](docs/features.png)
 
 ## Install
 

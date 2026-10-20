@@ -10,6 +10,8 @@ import displayio, bitmaptools
 from load_screen import font_mini, font_small, font_large
 import dp_cfg
 
+_BF = None        # the font drawn bold right now: the departure rows with bold text on
+
 C_TONE = 1; C_DIM = 2; C_FAINT = 3; C_RED = 4; C_REDDIM = 5; C_WHITE = 6; C_BLINK = 7; C_BOXW = 8; C_BOXWB = 9; C_TICK = 10
 C_L1 = 11; C_L2 = 12; C_L3 = 13       # the parts of an animated real-time mark
 C_BOXWD = 14                          # a dimmed white signet
@@ -61,16 +63,18 @@ def tw(font, s):
     for ch in s:
         g = _glyph(font, ch, low)
         w += g[0] if g else 4
+    if font is _BF and s: w += len(s)
     return w - 1 if w else 0
 
 
-def text(bmp, font, s, x, y, c, x0=0, x1=None, fh=0):
+def text(bmp, font, s, x, y, c, x0=0, x1=None, fh=0, it=False):
     """Draws s at x,y in palette index c, clipped to columns x0..x1. Returns the next x."""
     W = bmp.width; H = bmp.height
     if x1 is None or x1 > W: x1 = W
     if x0 < 0: x0 = 0
     if not fh: fh = font["fontheight"]
     low = font is font_mini
+    bd = font is _BF
     for ch in s:
         g = _glyph(font, ch, low)
         if g is None:
@@ -86,11 +90,13 @@ def text(bmp, font, s, x, y, c, x0=0, x1=None, fh=0):
                 if not row or not isinstance(row, int): continue
                 yy = y + r
                 if yy < 0 or yy >= H: continue
-                m = top; xx = x
+                m = top; xx = x + ((fh - 1 - r) * 2 // (fh - 1) if (it and fh > 1) else 0)     # italic: the upper rows lean right
                 while m:
-                    if row & m and x0 <= xx < x1: bmp[xx, yy] = c
+                    if row & m:
+                        if x0 <= xx < x1: bmp[xx, yy] = c
+                        if bd and x0 <= xx + 1 < x1: bmp[xx + 1, yy] = c
                     m >>= 1; xx += 1
-        x += gw
+        x += gw + (1 if bd else 0)
     return x
 
 
@@ -254,6 +260,7 @@ class Screen:
         s = str(cfg.get("ticker_sep", "+++")).strip()
         self.tick_sep = ("   " + s + "   ") if s else "     "
         self.tick_gap = not cfg.get("ticker_gapless", 1)
+        self.tick_it = cfg.get("ticker_italic", 0)
         self.left_w = 0; self.left = None; self.right = None; self.right_w = 0; self.pg_w = 0; self.lx = 0
         self.tg_l = None; self.tg_r = None
         self.g_l = displayio.Group(); self.g_r = displayio.Group()
@@ -352,17 +359,24 @@ class Screen:
         ink = cfg.get("badge_ink", "auto")
         for i in range(len(ws)):
             if x + ws[i] > x1: break
-            l, rgb, pill = lines[i]
+            l, rgb, pill = lines[i][:3]
             if rgb is None: text(bmp, font_mini, l, x + 2, y + 1, C_DIM)
-            else: self.signet(bmp, x, y, ws[i], 7, l, font_mini, 5, rgb, pill, 0, ink, cfg["badge"] == "invert")
+            else: self.signet(bmp, x, y, ws[i], 7, l, font_mini, 5, rgb, pill, 0, (lines[i][3] if len(lines[i]) > 3 else None) or ink, cfg["badge"] == "invert")
             x += ws[i] + 2
 
     def draw_rows(self, bmp, rows, cfg, hdr=None):
+        global _BF
+        try: self._draw_rows(bmp, rows, cfg, hdr)
+        finally: _BF = None
+
+    def _draw_rows(self, bmp, rows, cfg, hdr=None):
+        global _BF
         bmp.fill(0)
         top = cfg.get("srow") == "top"
         if self.hh and hdr:
             try: self.draw_header(bmp, 0 if top else self.ch - self.hh, hdr, cfg)
             except Exception as e: print("departuresplus: station row,", e)     # never let the row stop the board
+        _BF = self.font if (cfg.get("font_bold") and cfg["font"] != "compact") else None
         W = self.W; f = self.font; fh = self.fh
         big = cfg["font"] == "large"
         inv = cfg["badge"] == "invert"
@@ -403,7 +417,7 @@ class Screen:
             state = 2 if (bk and bm in ("line", "row")) else 1 if dimmed else 0
             rgb = r["rgb"]
             if rgb is None: text(bmp, f, r["line"], 0, y, ES["line"] + state, fh=fh)
-            elif use_fill: self.signet(bmp, 0, y, colw, boxh, r["line"], sf, sfh, rgb, r["pill"], state, ink, inv)
+            elif use_fill: self.signet(bmp, 0, y, colw, boxh, r["line"], sf, sfh, rgb, r["pill"], state, r.get("ink") or ink, inv)
             elif rgb == dp_cfg.TONE_BOX: text(bmp, f, r["line"], 0, y, ES["line"] + state, fh=fh)
             else: text(bmp, f, r["line"], 0, y, self.line_slot(rgb) + state, fh=fh)
             right = W
@@ -501,9 +515,9 @@ class Screen:
         elif walk_short and tot + 5 + tw(font_mini, walk_short) <= W - 2: wt = walk_short
         x = (W - (tot + (5 + tw(font_mini, wt) if wt else 0))) // 2
         for i in range(len(widths)):
-            label, rgb, pill = lines[i]
+            label, rgb, pill = lines[i][:3]
             if rgb is None: text(bmp, font_mini, label, x + 2, by + 1, C_TONE)
-            else: self.signet(bmp, x, by, widths[i], 7, label, font_mini, 5, rgb, pill, 0, ink, cfg["badge"] == "invert")
+            else: self.signet(bmp, x, by, widths[i], 7, label, font_mini, 5, rgb, pill, 0, (lines[i][3] if len(lines[i]) > 3 else None) or ink, cfg["badge"] == "invert")
             x += widths[i] + 2
         if wt: text(bmp, font_mini, wt, x + 3, by + 1, ES["walk"])
 
@@ -599,12 +613,154 @@ class Screen:
         self.tg_nxt.x = self.ml; self.tg_nxt.y = self.H
         self.unhold()
 
+    # ---- logo ------------------------------------------------------------
+    def logo_load(self):
+        try:
+            with open(dp_cfg.LOGO_FILE, "rb") as f: d = f.read()
+        except OSError:
+            return None
+        return d if (len(d) > 6 and d[0] == 76) else None
+
+    def _logo_pal(self, k):
+        p = self.lg_pal
+        p[0] = (0, 0, 0)
+        for i in range(len(self.lg_rgb)):
+            c = self.lg_rgb[i]
+            p[i + 1] = self._lv((c[0] / 255) ** 1.8, (c[1] / 255) ** 1.8, (c[2] / 255) ** 1.8, k) if k > 0 else (0, 0, 0)
+
+    def logo_show(self, d, cfg, on_frame=None, instant=False):
+        """Lays the logo over the whole panel: black around it, index 15 is see-through for the way in and out."""
+        FW = self.FW; H = self.H
+        lw = d[1] | d[2] << 8; lh = d[3] | d[4] << 8; n = min(14, d[5])
+        self.lg_rgb = [(d[6 + 3 * i], d[7 + 3 * i], d[8 + 3 * i]) for i in range(n)]
+        self.lg_pal = displayio.Palette(16)
+        self.lg_pal.make_transparent(15)
+        src = displayio.Bitmap(FW, H, 16)
+        x0 = (FW - lw) // 2; y0 = (H - lh) // 2; p = 6 + 3 * d[5]
+        for y in range(lh):
+            yy = y0 + y
+            if yy < 0 or yy >= H: continue
+            for x in range(lw):
+                xx = x0 + x
+                if xx < 0 or xx >= FW: continue
+                i = y * lw + x
+                b = d[p + (i >> 1)]
+                v = b & 15 if i & 1 else b >> 4
+                if v and v <= n: src[xx, yy] = v
+        k = cfg.get("logo_anim", "fade")
+        if k == "random": k = ("fade", "zoom", "up", "down", "left", "right", "dissolve", "blinds", "wipe")[(time.monotonic_ns() // 1000000) % 9]
+        pl = cfg.get("logo_pulse", "off")
+        shown = src
+        if k in ("wipe", "dissolve", "blinds", "zoom") or pl in ("grow", "both"):
+            shown = displayio.Bitmap(FW, H, 16)       # a working copy: the original stays for zooming and wiping
+            if k in ("wipe", "dissolve", "blinds", "zoom"): shown.fill(15)
+            else: bitmaptools.blit(shown, src, 0, 0)
+        self._logo_pal(0.0 if k == "fade" else 1.0)
+        tg = displayio.TileGrid(shown, pixel_shader=self.lg_pal)
+        if k == "left": tg.x = FW
+        elif k == "right": tg.x = -FW
+        elif k == "up": tg.y = H
+        elif k == "down": tg.y = -H
+        self.lg_kind = k; self.lg_src = src; self.lg_bmp = shown; self.lg_tg = tg
+        self.lg_pulse = pl; self.lg_tp = 0
+        self.group.append(tg)
+        if instant:                 # already in place before the display comes on
+            if shown is not src: bitmaptools.blit(shown, src, 0, 0)
+            tg.x = 0; tg.y = 0
+            self._logo_pal(1.0)
+        else:
+            self._logo_move(True, on_frame)
+        self.lg_t0 = time.monotonic_ns() // 1000000
+
+    def _logo_move(self, into, on_frame=None):
+        k = self.lg_kind; FW = self.FW; H = self.H; tg = self.lg_tg
+        def frame():
+            if on_frame: on_frame()
+            display.refresh()
+            time.sleep(0.02)
+        if k == "fade":
+            for i in range(1, 11):
+                self._logo_pal((i if into else 10 - i) / 10)
+                frame()
+        elif k in ("left", "right", "up", "down"):
+            side = k in ("left", "right")
+            span = FW if side else H
+            sg = -1 if k in ("left", "up") else 1
+            for i in range(1, 11):
+                q = 1 - i / 10
+                off = int(span * q * q * q + 0.5)
+                v = -sg * off if into else sg * (span - off)
+                if side: tg.x = v
+                else: tg.y = v
+                frame()
+        elif k == "zoom":
+            b = self.lg_bmp; src = self.lg_src
+            for i in range(1, 11):
+                s = (i if into else 10 - i) / 10
+                b.fill(15)
+                if s > 0.05: bitmaptools.rotozoom(b, src, ox=FW // 2, oy=H // 2, px=FW // 2, py=H // 2, scale=s)
+                frame()
+        elif k in ("wipe", "dissolve", "blinds"):
+            b = self.lg_bmp; src = self.lg_src
+            def put(x, y, x2, y2):
+                x2 = min(FW, x2); y2 = min(H, y2)
+                if into: bitmaptools.blit(b, src, x, y, x1=x, y1=y, x2=x2, y2=y2)
+                else: bitmaptools.fill_region(b, x, y, x2, y2, 15)
+            if k == "dissolve":
+                nx = (FW + 3) // 4
+                n = nx * ((H + 3) // 4)
+                st = 37 if n % 37 else 41
+                per = max(1, n // 12)
+                for i in range(n):
+                    j = (i * st) % n
+                    put((j % nx) * 4, (j // nx) * 4, (j % nx) * 4 + 4, (j // nx) * 4 + 4)
+                    if i % per == per - 1: frame()
+            elif k == "blinds":
+                for s in range(8):
+                    for x in range(s, FW, 8): put(x, 0, x + 1, H)
+                    frame()
+            else:
+                for x in range(0, FW, 8):
+                    put(x, 0, x + 8, H)
+                    frame()
+        display.refresh()
+
+    def logo_pulse(self, now):
+        """While the logo is shown: glow (darker and brighter) and/or grow (smaller and back). True when the picture changed."""
+        pl = self.lg_pulse
+        size = pl in ("grow", "both")
+        if pl not in ("glow", "grow", "both") or now - self.lg_tp < (100 if size else 60): return False
+        self.lg_tp = now
+        t = ((now - self.lg_t0) % 1600) / 800
+        w = t if t < 1 else 2 - t          # 0 .. 1 .. 0
+        if pl in ("glow", "both"): self._logo_pal(1 - 0.55 * w)
+        if size:
+            FW = self.FW; H = self.H; b = self.lg_bmp
+            b.fill(0)
+            bitmaptools.rotozoom(b, self.lg_src, ox=FW // 2, oy=H // 2, px=FW // 2, py=H // 2, scale=1 - 0.15 * w)
+        return True
+
+    def logo_hide(self, animate=True, on_frame=None):
+        tg = getattr(self, "lg_tg", None)
+        if tg is None: return
+        if animate:
+            try: self._logo_move(False, on_frame)
+            except Exception as e: print("departuresplus: logo,", e)
+        for i in range(len(self.group) - 1, -1, -1):
+            if self.group[i] is tg:
+                self.group.pop(i)
+                break
+        self.lg_tg = None; self.lg_src = None; self.lg_bmp = None
+        display.refresh()
+
     # ---- status row ----------------------------------------------------
     def _parts_w(self, parts):
         f = self.sfont; w = 0
         for p in parts:
             if p[0] == "ci": w += len(p[1]) + 2
             elif p[0] == "ic": w += 9
+            elif p[0] == "tm": w += tw(font_mini, p[1]) + 4
+            elif p[0] == "tb": w += tw(font_mini, p[1]) + 7
             else: w += tw(f, p[1]) + 4
         return w
 
@@ -623,6 +779,15 @@ class Screen:
                     for i in range(7):
                         if rows[j] >> (6 - i) & 1: bmp[x + i, y0 + j] = p[2]
                 x += 9
+            elif p[0] == "tm":
+                text(bmp, font_mini, p[1], x, (self.sh - 5) // 2, p[2])
+                x += tw(font_mini, p[1]) + 4
+            elif p[0] == "tb":
+                bw = tw(font_mini, p[1]) + 4; bh = 7 if self.sh >= 7 else self.sh; y0 = (self.sh - bh) // 2
+                bitmaptools.fill_region(bmp, x, y0, x + bw, y0 + bh, p[2])
+                for cx, cy in ((x, y0), (x + bw - 1, y0), (x, y0 + bh - 1), (x + bw - 1, y0 + bh - 1)): bmp[cx, cy] = 0
+                text(bmp, font_mini, p[1], x + 2, y0 + (bh - 5) // 2, p[3])
+                x += bw + 3
             else:
                 text(bmp, f, p[1], x, 0, p[2])
                 x += tw(f, p[1]) + 4
@@ -633,7 +798,15 @@ class Screen:
         v = _rgb(c)
         return C_TONE if v is None else self.line_slot(v)
 
-    def set_left(self, a, b, icon=False, icons=(), ipos="right", cpos="left"):
+    def _itext(self, s, c, st):
+        """Two letters in an icon place: normal text, small capitals, or small capitals in a box of the colour."""
+        slot = self._slot(c)
+        if st == "small": return ("tm", s, slot)
+        if st == "box":
+            return ("tb", s, slot, 0)        # the letters are cut out of the box: readable in any colour
+        return ("t", s, slot)
+
+    def set_left(self, a, b, icon=False, icons=(), ipos="right", cpos="left", ist="normal"):
         """Clock (a), date (b) and up to three icons (name or text, colour) in the status row.
         cpos / ipos say where the clock and the icons go: left, center (clock only) or right."""
         if not self.band: return
@@ -644,8 +817,8 @@ class Screen:
             v = str(v).strip()
             if not v: continue
             k = v.lower()
-            if v[0] == "/" and len(v) > 1: icp.append(("t", v[1:3], self._slot(c)))      # /wc: the letters, not the symbol
-            else: icp.append(("ic", k, self._slot(c)) if k in ICONS else ("t", v[:2], self._slot(c)))
+            if v[0] == "/" and len(v) > 1: icp.append(self._itext(v[1:3], c, ist))      # /wc: the letters, not the symbol
+            else: icp.append(("ic", k, self._slot(c)) if k in ICONS else self._itext(v[:2], c, ist))
         L = (clock if cpos != "right" else []) + (icp if ipos == "left" else [])
         R = (icp if ipos == "right" else []) + (clock if cpos == "right" else [])
         for side in (0, 1):
@@ -700,8 +873,8 @@ class Screen:
             b = self.tick_bmps.get(t)
             if b is None:
                 s = t + self.tick_sep
-                b = displayio.Bitmap(min(tw(self.sfont, s), 1600), self.sh, NCOL)
-                text(b, self.sfont, s, 0, 0, ES["ticker"])
+                b = displayio.Bitmap(min(tw(self.sfont, s) + (2 if self.tick_it else 0), 1600), self.sh, NCOL)
+                text(b, self.sfont, s, 0, 0, ES["ticker"], it=self.tick_it)
                 self.tick_bmps[t] = b
             tg = displayio.TileGrid(b, pixel_shader=self.pal, x=x, y=self.sy)
             self.tick_group.append(tg)

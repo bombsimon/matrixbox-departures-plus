@@ -1,19 +1,18 @@
-# 0.9.1 - A reliable first round, a smarter fallback, seconds
-
-**Fixed**
-
-* When the display comes on after a night off, the first round through the stations showed no departures. Now every station is asked right away, and a station that is still loading keeps its turn for up to 20 seconds until its departures are in.
-* A single failed request no longer shows "No data" at once: the station is asked again twice within a few seconds, and after that every 20 seconds instead of every minute.
-* The fallback steps in when the main source has fewer than two departures to show, not only when it has none. Departures you cannot reach count as missing while they are hidden. The main source is asked first again with every update, so the display goes back to it as soon as it delivers.
-* A request to the data server waits 5 seconds instead of 4.
+# 0.10.0 - Logo, bold text, smaller icon letters
 
 **New**
 
-* The clock can show seconds.
+* **Logo:** upload a picture on the settings page, or paste the address of one. Your browser scales it to the display and reduces it to 14 colors, and you see a preview first. The logo can take over the display every few minutes, for as long as you like, coming in by fading, zooming, sliding, dissolving, as blinds or wiping, and while it is shown it can glow, grow and shrink, or both. It can also come first whenever the display turns on. Home Assistant can show it at the press of a button (`/api/set?logo=1`).
+* **Bold text** for the departure rows in normal and large text.
+* **Letters as icons:** two letters in an icon place, such as WC, can be small capitals or small capitals cut out of a box in the icon's color, like a line signet, readable in any color and LED tone.
+* **Signet text per line:** two lists give chosen lines or whole vehicle types black or white text in their signets, e.g. black for `@BUS` and white for `U3`, while the rest follows the general setting.
+* **Italic ticker** as an option.
+* **Fewer updates for a smoother ticker** (Advanced): each station is fetched every 2 minutes at most.
 
-**Changed**
+**Fixed**
 
-* The version is easy to check: it stands on the loading screen while the board starts and as a badge at the top of the settings page.
+* The app now starts from the MatrixBOX 3rd party store, which installs it one folder deeper.
+* After the display came on, a station without any data made the app keep fetching every station in the background, so the ticker kept stopping. The warm-up now only asks stations without data, for the first minute.
 
 **Update**
 
