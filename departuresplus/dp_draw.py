@@ -20,7 +20,8 @@ EL = ("time", "dest", "line", "tag", "clock", "date", "ticker", "srow", "srow_t"
 ES = {}
 for _i in range(len(EL)): ES[EL[_i]] = C_E0 + 3 * _i
 C_LINE0 = C_E0 + 3 * len(EL)
-NCOL = 128         # 25 line colours, each as normal / dim / blinking
+C_CANC = 128       # the time of a cancelled departure: red or its own colour
+NCOL = 129         # 25 line colours, each as normal / dim / blinking, then C_CANC (still one byte per pixel)
 CNAMES = {"red": 0xFF0000, "green": 0x00C040, "blue": 0x0060FF, "yellow": 0xFFCC00, "orange": 0xFF7700, "white": 0xFFFFFF}
 
 
@@ -43,10 +44,17 @@ CLOCK5 = (0b01110, 0b10101, 0b10111, 0b10001, 0b01110)
 ICONS = {"wc": (48, 48, 63, 62, 28, 28), "door": (62, 34, 34, 38, 34, 62), "window": (127, 73, 127, 73, 73, 127), "light": (28, 34, 34, 20, 28, 8), "power": (6, 12, 30, 12, 24, 48), "house": (8, 28, 62, 127, 54, 54), "key": (48, 72, 79, 53, 0, 0), "bell": (8, 28, 62, 62, 127, 8), "washer": (127, 65, 93, 85, 93, 127), "dishes": (127, 65, 127, 85, 85, 127), "dryer": (127, 85, 127, 65, 73, 127), "coffee": (40, 0, 124, 125, 125, 56), "trash": (28, 127, 42, 42, 42, 62), "water": (8, 28, 62, 62, 62, 28), "battery": (0, 126, 65, 65, 126, 0), "temp": (8, 20, 20, 28, 62, 28), "heart": (54, 127, 127, 62, 28, 8), "mail": (127, 99, 85, 73, 65, 127), "sun": (73, 28, 62, 62, 28, 73), "cloud": (0, 24, 60, 63, 127, 0), "rain": (24, 60, 127, 0, 42, 84), "snow": (24, 60, 127, 0, 42, 0), "storm": (24, 60, 127, 8, 16, 8), "moon": (28, 48, 96, 96, 48, 28), "dot": (28, 62, 62, 62, 28, 0)}        # 7 x 6 status icons
 
 
+# Characters the board's fonts lack, by font height: the Ringbahn's \u27f3 \u27f2 (and \u21bb \u21ba), \u2192 and \u2190.
+EXTRA = {8: {'⟳': [7, 29, 35, 71, 64, 65, 34, 28, 0], '⟲': [7, 92, 98, 113, 1, 65, 34, 28, 0], '→': [7, 0, 4, 2, 127, 2, 4, 0, 0], '←': [7, 0, 16, 32, 127, 32, 16, 0, 0], '↻': [7, 29, 35, 71, 64, 65, 34, 28, 0], '↺': [7, 92, 98, 113, 1, 65, 34, 28, 0]}, 14: {'⟳': [10, 244, 398, 799, 768, 771, 771, 771, 771, 390, 252, 0, 0, 0, 0], '⟲': [10, 188, 454, 995, 3, 771, 771, 771, 771, 390, 252, 0, 0, 0, 0], '→': [10, 0, 24, 12, 6, 1023, 1023, 6, 12, 24, 0, 0, 0, 0, 0], '←': [10, 0, 96, 192, 384, 1023, 1023, 384, 192, 96, 0, 0, 0, 0, 0], '↻': [10, 244, 398, 799, 768, 771, 771, 771, 771, 390, 252, 0, 0, 0, 0], '↺': [10, 188, 454, 995, 3, 771, 771, 771, 771, 390, 252, 0, 0, 0, 0]}, 5: {'⟳': [5, 13, 19, 16, 17, 14], '⟲': [5, 22, 25, 1, 17, 14], '→': [5, 4, 2, 31, 2, 4], '←': [5, 4, 8, 31, 8, 4], '↻': [5, 13, 19, 16, 17, 14], '↺': [5, 22, 25, 1, 17, 14]}}
+
+
 def _glyph(font, ch, low):
     if low: ch = ch.lower()
     g = font.get(ch)
-    if g is None: g = font.get("_")
+    if g is None:
+        x = EXTRA.get(font["fontheight"])
+        g = x.get(ch) if x else None
+        if g is None: g = font.get("_")
     return g
 
 
@@ -122,6 +130,7 @@ def _hex_rel(h, soften=0.35):
 
 class Screen:
     def __init__(self, cfg):
+        self.mq = []           # destinations that scroll: [bitmap, y, x0, x1, text, colour, font, height, overflow, bold, start, offset]
         self.FW = display.width
         self.H = display.height
         self.pal = displayio.Palette(NCOL)
@@ -159,6 +168,8 @@ class Screen:
         p[C_FAINT] = self._lv(t[0], t[1], t[2], 0.3 if self.L >= 6 else 0.67)
         p[C_RED] = self._lv(1, 0, 0)
         p[C_REDDIM] = self._lv(1, 0, 0, self.dim_k)
+        cc = _rgb(cfg.get("c_cancel", ""))
+        p[C_CANC] = self._lv(*_hex_rel(cc)) if cc is not None else p[C_RED]
         p[C_WHITE] = self._lv(0.5, 0.5, 0.5)
         p[C_BOXW] = self._lv(0.75, 0.75, 0.75)
         p[C_BOXWD] = self._lv(0.75, 0.75, 0.75, self.dim_k)
@@ -194,7 +205,7 @@ class Screen:
     def line_slot(self, rgb):
         i = self.slots.get(rgb)
         if i is None:
-            if self.next_slot + 2 >= NCOL:
+            if self.next_slot + 2 >= C_CANC:
                 self.slots = {}
                 self.next_slot = C_LINE0
             i = self.next_slot
@@ -372,6 +383,7 @@ class Screen:
     def _draw_rows(self, bmp, rows, cfg, hdr=None):
         global _BF
         bmp.fill(0)
+        self.mq_clear(bmp)
         top = cfg.get("srow") == "top"
         if self.hh and hdr:
             try: self.draw_header(bmp, 0 if top else self.ch - self.hh, hdr, cfg)
@@ -428,7 +440,7 @@ class Screen:
                     self.icon(bmp, ic, W - iw, y + ((cap - 2) // 2 if lv == "dot" else cap - len(ic)), C_DIM if dimmed else 0)
                 right -= iw + 2
             if ts:
-                c = C_RED if r["canc"] else (et + 2 if bk and bm in ("time", "row") else et + dv)
+                c = C_CANC if r["canc"] else (et + 2 if bk and bm in ("time", "row") else et + dv)
                 text(bmp, f, ts, right - tw(f, ts), y, c, fh=fh)
                 if lv == "tick" and ts[-1] == "'" and r["live"] and c == et:      # the minute mark of a real-time departure pulses
                     text(bmp, f, "'", right - tw(f, "'"), y, C_L1, fh=fh)
@@ -442,7 +454,12 @@ class Screen:
             if gW:
                 text(bmp, f, r["tag"], right - tw(f, r["tag"]), y, ES["tag"] + dv, fh=fh)
                 right -= gW + gap
-            text(bmp, f, fit(f, r["dest"], right - 1 - dx, self.abbr), dx, y, ed + 2 if bk and bm in ("dest", "row") else ed + dv, x0=dx, x1=right - 1, fh=fh)
+            ds = fit(f, r["dest"], right - 1 - dx, self.abbr)
+            c = ed + 2 if bk and bm in ("dest", "row") else ed + dv
+            text(bmp, f, ds, dx, y, c, x0=dx, x1=right - 1, fh=fh)
+            over = tw(f, ds) - (right - 1 - dx)
+            if over > 0 and cfg.get("dest_scroll", "off") != "off":       # still too long: it scrolls, see marq_step
+                self.mq.append([bmp, y, dx, right - 1, ds, c, f, fh, over, _BF is not None, time.monotonic_ns() // 1000000, 0])
             y += self.pitch
 
     def spinner(self, bmp, k):
@@ -454,6 +471,7 @@ class Screen:
     def draw_message(self, bmp, lines):
         # lines: [(text, palette index)], small type, top left
         bmp.fill(0)
+        self.mq_clear(bmp)
         def wrap(f):                        # a text too long for one line wraps at its spaces
             out = []
             for t, c in lines:
@@ -480,6 +498,7 @@ class Screen:
     def draw_intro(self, bmp, name, lines, walk_long, walk_short, cfg):
         """lines: [(label, rgb or None, pill)]"""
         bmp.fill(0)
+        self.mq_clear(bmp)
         W = self.W; ch = self.ch
         ink = cfg.get("badge_ink", "auto")
         cands = [(font_large, 12), (font_small, 8), (font_mini, 6)]
@@ -577,8 +596,41 @@ class Screen:
             for x in range(0, W, 8):
                 put(x, 0, x + 8, ch)
                 frame()
+        self.mq = [m for m in self.mq if m[0] is not cur]      # the new page now lies in cur: so do its scrolling names
+        for m in self.mq:
+            if m[0] is nxt: m[0] = cur
         self.unhold()
         display.refresh()
+
+    def mq_clear(self, bmp):
+        if self.mq: self.mq = [m for m in self.mq if m[0] is not bmp]
+
+    def marq_step(self, now, speed, back="jump"):
+        """Moves the destinations that do not fit: a pause, then one pixel at a time to the end, a pause,
+        then back to the start in one jump or scrolling back the same way."""
+        global _BF
+        if not self.mq: return False
+        iv = 90 if speed == "slow" else 30 if speed == "fast" else 55
+        moved = False
+        for m in self.mq:
+            b = m[0]
+            if b is not self.cur: continue
+            run = m[8] * iv
+            t = (now - m[10]) % (3500 + run * (2 if back == "scroll" else 1))
+            if t < 2000: off = 0
+            elif t < 2000 + run: off = (t - 2000) // iv
+            elif t < 3500 + run: off = m[8]
+            else: off = max(0, m[8] - (t - 3500 - run) // iv)
+            if off == m[11]: continue
+            m[11] = off
+            _BF = m[6] if m[9] else None
+            try:
+                bitmaptools.fill_region(b, m[2], m[1], m[3], min(b.height, m[1] + m[7]), 0)
+                text(b, m[6], m[4], m[2] - off, m[1], m[5], x0=m[2], x1=m[3], fh=m[7])
+            finally:
+                _BF = None
+            moved = True
+        return moved
 
     def roll(self, px, on_frame=None):
         """self.nxt holds the old page moved up by px: both travel that far, so the rows slide up."""

@@ -18,6 +18,7 @@ class App:
         self.cache = {}        # station key -> {"deps", "t", "msg", "retry"}
         self.msgs = []         # [id, text, expires_ms or 0 for "until cleared", wakes the display]
         self.dev = []          # operator service messages
+        self.via = "tskylt"    # where the last departures came from: tskylt | bvg | own
         self.dev_t = None
         self.power = True      # what the user or Home Assistant asked for
         self.shown = True      # the departures are on screen (power, schedule and sleep combined)
@@ -84,11 +85,39 @@ class App:
         m = self.cfg["max_rows"]
         return min(self.scr.n, m) if m else self.scr.n
 
+    def server(self):
+        """T-Skylt's data server, or the user's own one that answers the same way."""
+        c = self.cfg
+        if c["source"] == "own": return c["host"], c["port"]
+        return dp_cfg.TS_HOST, dp_cfg.TS_PORT
+
     def _get(self, st, operator, sid):
         c = self.cfg
-        body = self.net.get(c["host"], c["port"], "/get_departures?country=" + st["country"] + "&operator=" + operator + "&station=" + sid)
+        src = c["source"]
+        bvg = src in ("bvg", "auto") and dp_data.bvg_ok(st["country"], operator, sid)
+        if bvg and src == "bvg": return self._bvg(st, sid)
+        h, p = self.server()
+        body = self.net.get(h, p, "/get_departures?country=" + st["country"] + "&operator=" + operator + "&station=" + sid)
+        self.via = "own" if src == "own" else "tskylt"
+        deps, msg = (None, "nodata") if body is None else dp_data.parse(body, st, c)
+        body = None
+        if bvg and deps is None:          # automatic: T-Skylt has nothing, ask the BVG API
+            gc.collect()
+            d2, m2 = self._bvg(st, sid)
+            if d2 is not None: return d2, m2
+            self.via = "tskylt"
+        return deps, msg
+
+    def _bvg(self, st, sid):
+        self.via = "bvg"
+        tls, h, p, pre = dp_data.split_url(self.cfg["bvg_url"] or dp_cfg.BVG_URL)
+        pages = (st.get("pages", 0) or self.cfg["pages"]) if self.cfg["mode"] != "merged" else self.cfg["pages"]
+        n = max(10, min(30, self.rows_max() * pages * 2))
+        gc.collect()
+        body = self.net.get(h, p, dp_data.bvg_path(pre, sid, st, n), limit=40000, tls=tls)
         if body is None: return None, "nodata"
-        return dp_data.parse(body, st, c)
+        gc.collect()
+        return dp_data.parse_bvg(body, st, self.cfg, self.net)
 
     def _upcoming(self, deps, st):
         """How many of these departures the display would show: not gone, not cancelled, and reachable while unreachable ones are hidden."""
@@ -110,7 +139,7 @@ class App:
         now = mono_ms()
         e["t"] = now
         deps, msg = self._get(st, st["operator"], st["id"])
-        src = "main"; op = st["operator"]
+        src = "main"; op = st["operator"]; via = self.via
         e["loads"] = e["loads"] + 1 if msg == "loading" else 0      # the server answers "Loading..." on a cold station
         # The fallback steps in when the main source has nothing coming up: an error,
         # a station that never finishes loading, or a list that has gone stale.
@@ -119,7 +148,7 @@ class App:
             gc.collect()
             d2, m2 = self._get(st, st.get("fb_operator") or st["operator"], st["fb_id"])
             if self._upcoming(d2, st) > n:      # the fallback has more to show; the main source is asked first again next time
-                deps = d2; msg = None; src = "fallback"; op = st.get("fb_operator") or st["operator"]
+                deps = d2; msg = None; src = "fallback"; op = st.get("fb_operator") or st["operator"]; via = self.via
             elif deps is None and m2 == "loading":
                 msg = "loading"
         if deps is not None and not deps and e["deps"] is None and e.get("n0", 0) < 2:
@@ -133,7 +162,7 @@ class App:
             e["retry"] = now + ((4000 if e["loads"] < 8 else 15000) if msg == "loading" else 20000)
             return
         e["err"] = 0
-        e["deps"] = deps; e["msg"] = None; e["retry"] = 0; e["src"] = src; e["op"] = op
+        e["deps"] = deps; e["msg"] = None; e["retry"] = 0; e["src"] = src; e["op"] = op; e["via"] = via
         gc.collect()
 
     def stale(self, st):
@@ -149,11 +178,13 @@ class App:
     def fetch_dev(self):
         act = self.active()
         if not act or not self.cfg["ticker_dev"] or not self.cfg["st_ticker"] or self.cfg["status"] == "off": return
+        if self.cfg["source"] == "bvg": self.dev = []; return      # these come from T-Skylt
         now = mono_ms()
         if self.dev_t is not None and now - self.dev_t < 600000: return
         self.dev_t = now
         st = act[0]
-        body = self.net.get(self.cfg["host"], self.cfg["port"], "/get_deviations?country=" + st["country"] + "&operator=" + st["operator"] + "&station=" + st["id"], limit=6000)
+        h, p = self.server()
+        body = self.net.get(h, p, "/get_deviations?country=" + st["country"] + "&operator=" + st["operator"] + "&station=" + st["id"], limit=6000)
         out = []
         try:
             j = json.loads(body)
@@ -167,7 +198,7 @@ class App:
 
     # ---- rows ----------------------------------------------------------
     def time_str(self, mins, canc, when):
-        if canc: return self.S("cancel_s") if self.narrow() else self.S("cancel")
+        if canc: return self.cfg["cancel_text"] or (self.S("cancel_s") if self.narrow() else self.S("cancel"))
         fmt = self.cfg["time_fmt"]
         if fmt == "clock":
             h, m, wd, d, mo = dp_data.split_secs(when)
@@ -203,6 +234,7 @@ class App:
                 if diff < -20: continue
                 mins = (diff + 30) // 60
                 if mins < 0: mins = 0
+                if d[5] and not c["cancel_show"]: continue
                 late = mins < st["walk"] and not d[5]
                 if late and c["walk"] == "hide": continue
                 items.append((d[0], d, st, mins, late))
@@ -634,6 +666,8 @@ class App:
             self.blink = bl
             scr.set_blink(bl)
             dirty = True
+        ds = self.cfg["dest_scroll"]
+        if ds != "off" and scr.marq_step(now, ds, self.cfg["dest_back"]): dirty = True
         if second:
             if self.status_update(): dirty = True
             if act and self.phase == "deps":
@@ -736,7 +770,7 @@ class App:
                     nxt.append({"line": d[1], "dest": d[3], "mins": max(0, (diff + 30) // 60), "mode": d[2]})
                     if len(nxt) >= 4: break
             out["stations"].append({"name": st["name"], "status": (e["msg"] or "ok") if e else "waiting",
-                                    "source": e["src"] if e else "main", "operator": e["op"] if e else st["operator"], "next": nxt})
+                                    "source": e["src"] if e else "main", "operator": e["op"] if e else st["operator"], "via": e.get("via", "") if e else "", "next": nxt})
         return out
 
     def debug(self):

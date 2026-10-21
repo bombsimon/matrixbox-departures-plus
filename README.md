@@ -6,7 +6,7 @@
 
 A departure board app for [MatrixBOX](https://github.com/MatrixBOX-dev/matrixbox), the open firmware of the T-Skylt LED boards. It is a rebuild of the stock *Departures* app with a different focus: several stations in rotation at full text size, line signets in the operator's colors, and a status row with clock and ticker that Home Assistant can write to.
 
-This is a community project and not affiliated with T-Skylt Sweden AB. It gets its departures from the same data server as the stock app.
+This is a community project and not affiliated with T-Skylt Sweden AB. It gets its departures from the same data server as the stock app, or for Berlin and Brandenburg straight from the free public BVG API.
 
 ## What it does
 
@@ -16,6 +16,7 @@ This is a community project and not affiliated with T-Skylt Sweden AB. It gets i
 * **Real-time mark.** Tells live departures from timetable ones, where the operator's data says so.
 * **Station row:** the station's name above or below the departures, with its lines and the time if you like. It stays still while a station's pages turn.
 * **Per station:** walking time, lines to show or to hide (also per direction), a filter by direction and vehicle type, and a fallback data source that steps in when the main one has fewer than two departures to show.
+* **Data source:** T-Skylt's data server, the free public BVG API for Berlin and Brandenburg, T-Skylt with the BVG API as a stand-in, or a server of your own.
 * **Colors:** destinations, times, line names, station title, station row, clock, date, ticker and page indicator can each have their own color.
 * **Logo:** upload a picture on the settings page and it takes over the display every few minutes, fading, zooming, sliding, wiping or dissolving in, glowing or growing and shrinking if you like, and first thing when the display comes on. Home Assistant can show it at the press of a button.
 * **Display:** three text sizes, bold text, ten LED tones or your own, brightness, margins, 180° rotation, an inverted look, a schedule per weekday, sleep while nothing departs.
@@ -25,6 +26,8 @@ This is a community project and not affiliated with T-Skylt Sweden AB. It gets i
 ![The display in eight settings](docs/display.png)
 
 ![Station row, icons, colors and bold text](docs/features.png)
+
+![The logo coming in and pulsing, here with a made-up example logo](docs/logo.gif)
 
 ## Install
 
@@ -47,7 +50,7 @@ Both copy the app over Wi-Fi into `/departuresplus` on the board and start it. U
 Open `http://<board ip>/` while the app is running. Changes apply immediately and are saved on the board. Under *Advanced* you can export the settings to a file, import them again and reset everything to the defaults.
 
 <p align="center">
-  <img src="docs/settings.png" alt="The settings page" width="560">
+  <img src="docs/settings.png" alt="The settings page" width="380">
 </p>
 
 ## Home Assistant
@@ -79,8 +82,10 @@ Anything else can use the app's API directly:
 
 ## Good to know
 
-* **Data.** Departures come from T-Skylt's data server, like in the stock app. Which operators exist and how good their data is depends on that server.
+* **Data.** By default departures come from T-Skylt's data server, like in the stock app. Which operators exist and how good their data is depends on that server.
+* **BVG direct.** For VBB and Berlin stations the app can instead ask [v6.bvg.transport.rest](https://v6.bvg.transport.rest/), a free public API run by volunteers, without any guarantee. Pick it under *Data source* on the settings page; *Automatic* uses it only when T-Skylt has no data. Your stations keep working, as both use the same VBB numbers. Its answers are bigger and come over HTTPS, so it needs more memory and each update pauses the ticker a little longer. It has no direction numbers, so the Direction field and `:1`/`:2` in Lines only work with T-Skylt.
 * **Delays.** Most operators, Berlin included, deliver times that already contain the delay. The `+3` style only shows something where an operator sends the delay separately.
+* **Long destinations** are shortened with the abbreviations first. If they still do not fit, they can scroll (Destination names, off by default).
 * **Line colors.** They are in `departuresplus/colors.txt`, one row per network, and only the rows of your own stations are loaded. Where a network is missing, the signet is drawn in the board's LED tone. Additions are welcome.
 * **Lines field.** Entries are separated by a space or a comma. `U2 S7` shows only these lines, `-M4 -100` hides two, `-U7:2` hides U7 in direction 2 only. The small i next to the field on the settings page has more examples.
 * **Station titles.** A title shows the station's name exactly as it stands in the settings, so edit the name there to change it.

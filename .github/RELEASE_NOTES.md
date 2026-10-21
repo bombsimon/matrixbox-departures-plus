@@ -1,18 +1,24 @@
-# 0.10.0 - Logo, bold text, smaller icon letters
+# 0.11.0 - Choice of data source, settings page in the MatrixBOX design
 
 **New**
 
-* **Logo:** upload a picture on the settings page, or paste the address of one. Your browser scales it to the display and reduces it to 14 colors, and you see a preview first. The logo can take over the display every few minutes, for as long as you like, coming in by fading, zooming, sliding, dissolving, as blinds or wiping, and while it is shown it can glow, grow and shrink, or both. It can also come first whenever the display turns on. Home Assistant can show it at the press of a button (`/api/set?logo=1`).
-* **Bold text** for the departure rows in normal and large text.
-* **Letters as icons:** two letters in an icon place, such as WC, can be small capitals or small capitals cut out of a box in the icon's color, like a line signet, readable in any color and LED tone.
-* **Signet text per line:** two lists give chosen lines or whole vehicle types black or white text in their signets, e.g. black for `@BUS` and white for `U3`, while the rest follows the general setting.
-* **Italic ticker** as an option.
-* **Fewer updates for a smoother ticker** (Advanced): each station is fetched every 2 minutes at most.
+* **Data source:** a new section on the settings page picks where departures come from.
+  * **T-Skylt:** as before, for every country and operator in the list.
+  * **BVG direct:** the free public BVG API ([v6.bvg.transport.rest](https://v6.bvg.transport.rest/)), run by volunteers, without any guarantee. It covers VBB and Berlin stations, and your stations keep working because both sources use the same VBB numbers. Other stations keep using T-Skylt. The station search asks the BVG API too.
+  * **Automatic:** T-Skylt first, and the BVG API whenever T-Skylt has no data for a VBB or Berlin station.
+  * **Own server:** a server of yours that answers like T-Skylt's. Settings that already used a different data server switch to this one by themselves.
 
-**Fixed**
+  Good to know about BVG direct: its answers are bigger and come over HTTPS, so it uses more of the board's memory and each update pauses the ticker a little longer (*Fewer updates* under Advanced helps). It has no direction numbers, so the Direction field and `:1`/`:2` in Lines only work with T-Skylt, and it brings no operator service messages for the ticker. Station pills on the settings page say *In use · BVG* while a station runs on it.
 
-* The app now starts from the MatrixBOX 3rd party store, which installs it one folder deeper.
-* After the display came on, a station without any data made the app keep fetching every station in the background, so the ticker kept stopping. The warm-up now only asks stations without data, for the first minute.
+* **Scrolling destinations:** a destination too long for its column, even after the abbreviations, can scroll to its end, slow, medium or fast, and then jump or scroll back to its start (Destination names, off by default).
+* **Destinations without the district:** "Lankwitz, Halbauer Weg" becomes "Halbauer Weg", as the BVG API names many bus stops that way (Destination names, on by default).
+* **Cancelled departures:** show them or leave them out, with your own text instead of "cancelled" and your own color instead of red (Departure rows and Colors).
+* **Arrows:** the ⟳ and ⟲ of Berlin's Ringbahn S41 and S42, ↻ ↺, → and ← now show up instead of a gap, in all three text sizes, and a "->" in a destination such as "Wittenau -> Bus 22" becomes a real arrow.
+
+**Changed**
+
+* The settings page now uses the shared MatrixBOX look: cards with small section titles, the same switches, segmented buttons, input fields and buttons as the built-in apps, and the same page width. Wide controls such as sliders and long choices get their own line under their label.
+* The clock follows the real offset from UTC when departures come from the BVG API, so it stays right across the change to winter time.
 
 **Update**
 

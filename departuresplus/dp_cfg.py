@@ -2,9 +2,12 @@
 # Pure data and helpers, no hardware access.
 import json
 
-VERSION = "0.10.0"
+VERSION = "0.11.0"
 APP = "departuresplus"
 CFG_FILE = "departuresplus.json"
+TS_HOST = "data.t-skylt.se"   # T-Skylt's data server
+TS_PORT = 90
+BVG_URL = "https://v6.bvg.transport.rest"   # free public BVG/VBB API, run by volunteers
 LOGO_FILE = "logo.bin"   # 'L', width, height (2 bytes each), colours, palette, 4-bit pixels
 
 DEFAULTS = {
@@ -30,6 +33,8 @@ DEFAULTS = {
     "bus_color": 1,
     "time_fmt": "min",       # min | tick | plain | clock
     "now_text": "",          # empty = "now"
+    "cancel_show": 1,        # show cancelled departures (0 leaves them out)
+    "cancel_text": "",       # empty = "cancelled", "canc." on narrow boards
     "now_hide": 0,           # show no time at all while a departure is leaving
     "min_text": "",
     "nodeps_text": "",
@@ -40,6 +45,7 @@ DEFAULTS = {
     "blink": "time",         # off | time | dest | line | row: what blinks while a departure is leaving
     "walk": "dim",           # show | dim | hide
     "strip_prefix": 1,       # drop "S+U ", "U ", "S " in front of destinations
+    "dest_district": 1,      # "Lankwitz, Halbauer Weg" -> "Halbauer Weg"
     "strip": "",             # comma separated text to remove from destinations
     "abbr": "",              # comma separated long=short pairs, used when a destination does not fit
     "line_len": 0,           # cut line names to N characters, 0 = off
@@ -71,13 +77,15 @@ DEFAULTS = {
     "ticker_gapless": 1,     # an endless belt; 0 = a round leaves the screen before the next one starts
     "ticker_sep": "+++",     # stands between two texts
     "ticker_dev": 1,         # show the operator's service messages in the ticker
+    "dest_back": "jump",     # jump | scroll: how a scrolled destination gets back to its start
+    "dest_scroll": "off",    # off | slow | medium | fast: a destination too long for its column scrolls to its end and back
     "ticker_speed": "normal",  # fast | normal | slow
     "ticker_italic": 0,
     "tone": "amber",         # see dp_draw.TONES, or "custom" with tone_hex
     "tone_hex": "#ff9900",
     # Own colours per element, empty = the default. A name (red, green, blue, yellow, orange, white) or #RRGGBB.
     "c_time": "", "c_dest": "", "c_line": "", "c_tag": "", "c_clock": "", "c_date": "", "c_ticker": "",
-    "c_srow": "", "c_srow_t": "", "c_title": "", "c_walk": "", "c_pager": "",
+    "c_srow": "", "c_srow_t": "", "c_title": "", "c_walk": "", "c_pager": "", "c_cancel": "",
     "margin_l": 0,           # unused columns at the left and right edge
     "margin_r": 0,
     "brightness": 2,         # 1..3
@@ -99,7 +107,9 @@ DEFAULTS = {
     "tx_power": 0,           # Wi-Fi transmit power in dBm, 0 = leave the board's own setting
     "poll": 30,              # seconds between requests per station
     "calm": 0,               # fewer requests for a smoother ticker: every 2 minutes per station at most
-    "host": "data.t-skylt.se",
+    "source": "tskylt",      # tskylt | bvg (BVG/VBB API, Berlin-Brandenburg only) | auto (T-Skylt, BVG when it has no data) | own (host and port below)
+    "bvg_url": BVG_URL,
+    "host": "data.t-skylt.se",   # own server, answering like T-Skylt's
     "port": 90,
 }
 
@@ -114,14 +124,14 @@ CHOICES = {
     "logo_anim": ("fade", "zoom", "up", "down", "left", "right", "dissolve", "blinds", "wipe", "random", "cut"),
     "logo_pulse": ("off", "glow", "grow", "both"), "srow": ("off", "top", "bottom"), "srow_align": ("left", "center", "right"), "st_date": ("off", "date", "wday"), "ticker_color": ("white", "tone"),
     "tone": ("amber", "orange", "yellow", "white", "warm", "red", "green", "blue", "cyan", "pink", "custom"),
-    "button": ("next", "power"), "ticker_speed": ("fast", "normal", "slow"),
+    "button": ("next", "power"), "source": ("tskylt", "bvg", "auto", "own"), "ticker_speed": ("fast", "normal", "slow"), "dest_scroll": ("off", "slow", "medium", "fast"), "dest_back": ("jump", "scroll"),
     "blink": ("off", "time", "dest", "line", "row"), "live": ("off", "wave", "dot", "bar", "tick", "approx"), "delay_color": ("red", "tone"), "badge_ink": ("auto", "black", "white"),
 }
 LIMITS = {"intro": (0, 10), "dwell": (1, 60), "logo_every": (1, 240), "logo_secs": (1, 60), "pages": (1, 5), "skip": (0, 60), "brightness": (1, 3), "poll": (20, 600),
           "port": (1, 65535), "max_rows": (0, 16), "line_len": (0, 6), "line_col": (0, 6), "gap": (0, 12), "tx_power": (0, 20), "margin_l": (0, 12), "margin_r": (0, 12)}
-STRLEN = {"ticker_text": 160, "ink_black": 120, "ink_white": 120, "abbr": 240, "strip": 120, "sched_days": 100, "tone_hex": 7, "walk_text": 24, "days_text": 70, "ticker_sep": 12, "nodeps_text": 60, "srow_text": 24,
+STRLEN = {"bvg_url": 80, "ticker_text": 160, "ink_black": 120, "ink_white": 120, "abbr": 240, "strip": 120, "sched_days": 100, "tone_hex": 7, "walk_text": 24, "days_text": 70, "ticker_sep": 12, "nodeps_text": 60, "srow_text": 24,
           "icon1": 12, "icon2": 12, "icon3": 12, "icon1_c": 9, "icon2_c": 9, "icon3_c": 9,
-          "c_time": 9, "c_dest": 9, "c_line": 9, "c_tag": 9, "c_clock": 9, "c_date": 9, "c_ticker": 9, "c_srow": 9, "c_srow_t": 9, "c_title": 9, "c_walk": 9, "c_pager": 9}
+          "c_time": 9, "c_dest": 9, "c_line": 9, "c_tag": 9, "c_clock": 9, "c_date": 9, "c_ticker": 9, "c_srow": 9, "c_srow_t": 9, "c_title": 9, "c_walk": 9, "c_pager": 9, "c_cancel": 9, "cancel_text": 12}
 
 # Fixed words. Each can be replaced with the setting named <key>_text.
 STR = {"now": "now", "now_s": "0", "cancel": "cancelled", "cancel_s": "canc.", "min": "min", "walk": "% MIN WALK",
@@ -252,6 +262,7 @@ def load():
     try:
         with open(CFG_FILE) as f: j = json.loads(f.read())
         merge(cfg, j)
+        if "source" not in j and cfg["host"] != TS_HOST: cfg["source"] = "own"     # saved before 0.11 with a different data server
         o = OLD_LANG.get(j.get("lang"))
         if o and "walk_text" not in j:
             cfg["walk_text"] = o[0]; cfg["days_text"] = o[1]

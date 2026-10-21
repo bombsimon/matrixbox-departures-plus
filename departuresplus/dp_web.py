@@ -36,7 +36,7 @@ def _apply(changes, persist):
     saved = None
     if changed:
         if persist: saved = dp_cfg.save(_app.cfg)
-        if "stations" in changed: _app.cache = {}       # filters are applied when departures are read, so read them again
+        if [k for k in changed if k in ("stations", "source", "bvg_url", "host", "port")]: _app.cache = {}       # filters are applied when departures are read, so read them again
         if all(k in _LIGHT or k[:2] == "c_" for k in changed):
             _app.scr.set_palette(_app.cfg)
             _app.clock_s = None
@@ -183,7 +183,8 @@ def init(app):
         p = request.params
         c = _app.cfg
         q = p.get("q", "").replace(" ", "%20")
-        body = _app.net.get(c["host"], c["port"], "/search_stop?country=" + p.get("country", "") + "&operator=" + p.get("operator", "") + "&station=" + q, limit=30000)
+        h, pt = _app.server()
+        body = _app.net.get(h, pt, "/search_stop?country=" + p.get("country", "") + "&operator=" + p.get("operator", "") + "&station=" + q, limit=30000)
         if body is None:        # the server did not answer in time: usually this one operator's source is down
             return _json({"ok": False, "results": [], "error": _app.net.last.get("error") or "no answer"})
         more = False
